@@ -2,12 +2,14 @@
 Downloads and caches historical adjusted-close prices via yfinance.
 Canadian ETF prices are converted to USD using the CAD/USD FX rate.
 """
+from __future__ import annotations
 
 import os
 import json
 import time
 import logging
 from datetime import datetime, timedelta
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -34,7 +36,7 @@ def _cache_is_fresh() -> bool:
     return datetime.utcnow() - fetched < timedelta(hours=CACHE_TTL_HOURS)
 
 
-def _download_batch(tickers: list[str], start: str, end: str | None) -> pd.DataFrame:
+def _download_batch(tickers: List[str], start: str, end: Optional[str]) -> pd.DataFrame:
     """Download a batch of tickers; return Close prices DataFrame."""
     kwargs = dict(start=start, auto_adjust=True, progress=False, threads=True)
     if end:
@@ -58,7 +60,7 @@ def _download_batch(tickers: list[str], start: str, end: str | None) -> pd.DataF
 
 def fetch_prices(
     start: str = BACKTEST_START,
-    end: str | None = None,
+    end: Optional[str] = None,
     progress_callback=None,
 ) -> pd.DataFrame:
     """
@@ -70,13 +72,13 @@ def fetch_prices(
         return pd.read_parquet(PRICES_FILE)
 
     tickers = get_all_etfs()
-    all_frames: list[pd.DataFrame] = []
+    all_frames: List[pd.DataFrame] = []
     batches = [tickers[i : i + BATCH_SIZE] for i in range(0, len(tickers), BATCH_SIZE)]
 
     # Download CAD/USD FX rate first (needed for currency conversion)
     logger.info("Downloading CAD/USD FX rate…")
     fx_raw = _download_batch([CADUSD_TICKER], start, end)
-    cadusd: pd.Series | None = None
+    cadusd: Optional[pd.Series] = None
     if not fx_raw.empty:
         col = CADUSD_TICKER if CADUSD_TICKER in fx_raw.columns else fx_raw.columns[0]
         cadusd = fx_raw[col].ffill().bfill()

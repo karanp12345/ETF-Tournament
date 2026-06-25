@@ -3,6 +3,8 @@ ETF universe across TSX, TSX Venture, NEO/Cboe Canada, NYSE, and NASDAQ.
 Canadian ETFs use the .TO suffix (yfinance standard for TSX/NEO-listed securities).
 Tickers that fail to download or lack sufficient history are silently dropped at runtime.
 """
+from __future__ import annotations
+from typing import List
 
 # ── Canadian ETFs ─────────────────────────────────────────────────────────────
 
@@ -168,7 +170,7 @@ SIZE = [
 ]
 
 
-def get_all_etfs() -> list[str]:
+def get_all_etfs() -> List[str]:
     """Return deduplicated list of all ETF tickers across all exchanges."""
     canadian = (
         ISHARES_CA + VANGUARD_CA + BMO_CA + HORIZONS_CA + HAMILTON_CA +
