@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ETF Tournament</title>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <!-- ── Header ── -->
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⚡</span>
+        <span class="logo-text">ETF <strong>Tournament</strong></span>
+      </div>
+      <div class="header-meta">
+        <span id="last-updated" class="meta-chip"></span>
+        <span id="etf-count" class="meta-chip"></span>
+        <button id="refresh-btn" class="btn-outline" onclick="triggerRefresh()">↻ Refresh Data</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Loading overlay ── -->
+  <div id="loader" class="loader-overlay">
+    <div class="loader-box">
+      <div class="spinner"></div>
+      <div id="loader-msg" class="loader-msg">Initialising…</div>
+      <div class="progress-track"><div id="progress-bar" class="progress-fill"></div></div>
+      <div id="loader-sub" class="loader-sub">This may take a few minutes on first run while<br>price data is downloaded for all ETFs.</div>
+    </div>
+  </div>
+
+  <!-- ── Main content ── -->
+  <main id="app" class="hidden">
+
+    <!-- Equity Curve -->
+    <section class="card full-width">
+      <h2>Equity Curves — $10 000 invested (daily rebalancing, backtest from {{ backtest_start }})</h2>
+      <div id="equity-chart" class="chart-container"></div>
+    </section>
+
+    <!-- Performance Metrics -->
+    <section class="card full-width">
+      <h2>Strategy Performance Metrics</h2>
+      <div class="table-scroll">
+        <table id="metrics-table">
+          <thead>
+            <tr>
+              <th>Strategy</th>
+              <th>Total Return</th>
+              <th>CAGR</th>
+              <th>Sharpe Ratio</th>
+              <th>Max Drawdown</th>
+              <th>Win Rate</th>
+            </tr>
+          </thead>
+          <tbody id="metrics-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Current Rankings -->
+    <section class="card full-width">
+      <h2>Today's Round-Robin Tournament Rankings</h2>
+      <p class="section-desc">
+        Each ETF is scored by the number of head-to-head wins across
+        {{ top_n_values | length }} lookback windows (10 / 20 / 40 / 60 / 120 days).
+        Higher score = stronger uptrend relative to all peers.
+      </p>
+      <div class="table-scroll">
+        <table id="rankings-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Ticker</th>
+              <th>Tournament Score</th>
+              <th>20d Return</th>
+              <th>60d Return</th>
+              <th>120d Return</th>
+            </tr>
+          </thead>
+          <tbody id="rankings-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Error state ── -->
+  <div id="error-box" class="hidden error-box">
+    <div class="error-inner">
+      <h3>Something went wrong</h3>
+      <p id="error-msg"></p>
+      <button class="btn-outline" onclick="triggerRefresh()">Retry</button>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
