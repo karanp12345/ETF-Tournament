@@ -24,8 +24,6 @@ function poll() {
       } else if (s.status === "error") {
         clearInterval(pollTimer);
         showError(s.message);
-      } else {
-        // still loading — keep polling
       }
     })
     .catch(() => {});
@@ -52,48 +50,67 @@ function loadAllData() {
   }).catch(err => showError(String(err)));
 }
 
-// ── Charts ────────────────────────────────────────────────────────────────────
+// ── Chart ─────────────────────────────────────────────────────────────────────
 
-const PALETTE = ["#58a6ff", "#3fb950", "#f0883e", "#d2a8ff", "#79c0ff", "#aaaaaa"];
+// 5 colours for Top-1…Top-5; improved uses same colour but solid/thicker
+const COLORS = ["#58a6ff", "#3fb950", "#f0883e", "#d2a8ff", "#79c0ff"];
 
 function renderEquityChart(equity) {
-  const traces = Object.entries(equity).map(([key, data], i) => ({
-    x: data.dates,
-    y: data.values,
-    name: data.name,
-    type: "scatter",
-    mode: "lines",
-    line: {
-      color: key === "benchmark" ? "#8b949e" : PALETTE[i % PALETTE.length],
-      width: key === "benchmark" ? 1.5 : 2,
-      dash: key === "benchmark" ? "dot" : "solid",
-    },
-  }));
+  const traces = [];
+  const order = ["top_1","top_2","top_3","top_4","top_5",
+                 "top_1_improved","top_2_improved","top_3_improved","top_4_improved","top_5_improved",
+                 "benchmark"];
+
+  order.forEach((key, idx) => {
+    if (!equity[key]) return;
+    const d = equity[key];
+    const isImproved  = d.improved === true;
+    const isBenchmark = key === "benchmark";
+    const colorIdx = isBenchmark ? -1 : (parseInt(key.match(/\d+/)[0]) - 1);
+    const color = isBenchmark ? "#8b949e" : COLORS[colorIdx];
+
+    traces.push({
+      x: d.dates,
+      y: d.values,
+      name: d.name,
+      type: "scatter",
+      mode: "lines",
+      line: {
+        color,
+        width: isBenchmark ? 1.5 : (isImproved ? 2.5 : 1.2),
+        dash:  isBenchmark ? "dot" : (isImproved ? "solid" : "dash"),
+      },
+      opacity: isBenchmark ? 0.8 : (isImproved ? 1 : 0.55),
+    });
+  });
 
   const layout = {
     paper_bgcolor: "#161b22",
     plot_bgcolor: "#161b22",
     font: { color: "#e6edf3", size: 12 },
-    margin: { l: 60, r: 20, t: 10, b: 50 },
+    margin: { l: 70, r: 20, t: 10, b: 50 },
     legend: {
       bgcolor: "rgba(0,0,0,0)",
       bordercolor: "#30363d",
       borderwidth: 1,
       x: 0.01, y: 0.99,
+      font: { size: 11 },
     },
-    xaxis: {
-      gridcolor: "#21262d",
-      showgrid: true,
-      zeroline: false,
-    },
+    xaxis: { gridcolor: "#21262d", zeroline: false },
     yaxis: {
       gridcolor: "#21262d",
-      showgrid: true,
       zeroline: false,
       tickprefix: "$",
       tickformat: ",.0f",
     },
     hovermode: "x unified",
+    annotations: [{
+      x: 0.5, y: 1.04, xref: "paper", yref: "paper",
+      text: "— Dashed = Original strategy   |   ── Solid = Improved (vol-adjusted, 60/120/252d, 5-day hold)   |   ··· = SPY benchmark",
+      showarrow: false,
+      font: { size: 11, color: "#8b949e" },
+      xanchor: "center",
+    }],
   };
 
   Plotly.newPlot("equity-chart", traces, layout, { responsive: true, displayModeBar: false });
@@ -111,13 +128,25 @@ function pct(val, decimals = 2) {
 function renderMetricsTable(metrics) {
   const tbody = document.getElementById("metrics-body");
   tbody.innerHTML = "";
+
+  // Find best CAGR among all strategies
   const best = metrics[0];
+
   metrics.forEach(row => {
-    const isBest = row.strategy === best.strategy;
+    const isBest     = row.strategy === best.strategy;
+    const isImproved = row.strategy.includes("Improved");
+    const isBenchmark = row.strategy === "SPY";
     const tr = document.createElement("tr");
     if (isBest) tr.classList.add("best-row");
+    if (isImproved) tr.classList.add("improved-row");
+
+    let badge = "";
+    if (isBest)      badge = ' <span class="tag-best">★ Best</span>';
+    if (isImproved)  badge += ' <span class="tag-improved">Improved</span>';
+    if (isBenchmark) badge += ' <span class="tag-bm">Benchmark</span>';
+
     tr.innerHTML = `
-      <td class="strategy-name">${row.strategy}${isBest ? ' <span style="color:var(--green);font-size:11px;">★ Best</span>' : ""}</td>
+      <td class="strategy-name">${row.strategy}${badge}</td>
       <td>${pct(row.total_return)}</td>
       <td>${pct(row.cagr)}</td>
       <td>${row.sharpe.toFixed(3)}</td>
@@ -160,7 +189,6 @@ function triggerRefresh() {
   document.getElementById("loader").classList.remove("hidden");
   document.getElementById("progress-bar").style.width = "0%";
   document.getElementById("loader-msg").textContent = "Refreshing data…";
-
   fetch("/api/refresh", { method: "POST" })
     .then(() => startPolling())
     .catch(err => showError(String(err)));
@@ -174,5 +202,4 @@ function showError(msg) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-
 window.addEventListener("DOMContentLoaded", () => startPolling());

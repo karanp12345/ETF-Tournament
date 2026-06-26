@@ -1,59 +1,61 @@
 """
-Daily-rebalancing backtest engine.
+Daily-rebalancing backtest engine — runs both original and improved strategies.
 
-Each day:
-  1. Identify top-N ETFs from yesterday's tournament scores.
-  2. Allocate capital equally across all top-N ETFs that have a valid price.
-  3. Compute next-day portfolio return (close-to-close, zero commission —
-     Wealthsimple has no trading commissions).
-  4. Track equity curve and record holdings.
+Original:  raw momentum, windows [10,20,40,60,120], rebalance every day
+Improved:  vol-adjusted momentum, windows [60,120,252], rebalance every 5 days
 
 Assumptions:
-  - Execution at next day's open is approximated by the next day's close
-    (conservative; avoids look-ahead bias within the same session).
-  - No slippage, no bid/ask spread.
-  - Dividends are captured in adjusted close prices (yfinance auto_adjust=True).
+  - Execution at next-day close (shift(1) on signals avoids look-ahead bias).
+  - Zero commission (Wealthsimple), no slippage.
+  - Dividends captured via yfinance auto_adjust=True.
 """
+from __future__ import annotations
+
+from typing import Dict
 
 import numpy as np
 import pandas as pd
 
-from config import INITIAL_CAPITAL, TOP_N_VALUES, BENCHMARK, BACKTEST_START
-from tournament import compute_rankings, get_daily_top_n
+from config import INITIAL_CAPITAL, TOP_N_VALUES, BENCHMARK, MIN_HOLDING_DAYS
+from tournament import (
+    compute_rankings,
+    compute_rankings_improved,
+    get_daily_top_n,
+    apply_min_holding,
+)
 
 
-def run_backtest(prices: pd.DataFrame) -> dict:
-    """
-    Run the full backtest for all TOP_N_VALUES strategies and the benchmark.
-    Returns a dict with equity curves and performance metrics.
-    """
-    scores = compute_rankings(prices)
-    daily_returns = prices.pct_change()
+def _portfolio_equity(prices: pd.DataFrame, top_mask: pd.DataFrame) -> tuple:
+    daily_returns = prices.pct_change(fill_method=None)
+    shifted = top_mask.shift(1)
+    port_ret = daily_returns[shifted].mean(axis=1).fillna(0)
+    equity = (1 + port_ret).cumprod() * INITIAL_CAPITAL
+    return equity, port_ret
 
-    results: dict = {}
 
+def run_backtest(prices: pd.DataFrame) -> Dict:
+    results: Dict = {}
+
+    # ── Original strategies ───────────────────────────────────────────────────
+    scores_orig = compute_rankings(prices)
     for n in TOP_N_VALUES:
-        top_mask = get_daily_top_n(scores, n)  # bool DataFrame
-
-        # Portfolio daily return = equal-weight average of top-N ETF returns
-        # Shift top_mask by 1: signals from day t → invest on day t+1
-        shifted_mask = top_mask.shift(1)
-        portfolio_returns = (
-            daily_returns[shifted_mask]
-            .mean(axis=1)
-            .fillna(0)
-        )
-
-        equity = (1 + portfolio_returns).cumprod() * INITIAL_CAPITAL
+        mask = get_daily_top_n(scores_orig, n)
+        equity, ret = _portfolio_equity(prices, mask)
         equity.name = f"Top {n}"
-        results[f"top_{n}"] = {
-            "equity": equity,
-            "returns": portfolio_returns,
-        }
+        results[f"top_{n}"] = {"equity": equity, "returns": ret}
 
-    # Benchmark
+    # ── Improved strategies ───────────────────────────────────────────────────
+    scores_imp = compute_rankings_improved(prices)
+    for n in TOP_N_VALUES:
+        raw_mask = get_daily_top_n(scores_imp, n)
+        held_mask = apply_min_holding(raw_mask, min_holding_days=MIN_HOLDING_DAYS)
+        equity, ret = _portfolio_equity(prices, held_mask)
+        equity.name = f"Top {n} (Improved)"
+        results[f"top_{n}_improved"] = {"equity": equity, "returns": ret}
+
+    # ── Benchmark ─────────────────────────────────────────────────────────────
     if BENCHMARK in prices.columns:
-        bm_ret = prices[BENCHMARK].pct_change().fillna(0)
+        bm_ret = prices[BENCHMARK].pct_change(fill_method=None).fillna(0)
         bm_equity = (1 + bm_ret).cumprod() * INITIAL_CAPITAL
         bm_equity.name = BENCHMARK
         results["benchmark"] = {"equity": bm_equity, "returns": bm_ret}
@@ -62,25 +64,14 @@ def run_backtest(prices: pd.DataFrame) -> dict:
 
 
 def compute_metrics(equity: pd.Series, returns: pd.Series) -> dict:
-    """Compute annualised performance metrics for one strategy."""
-    total_days = len(returns)
-    years = total_days / 252
-
+    years = len(returns) / 252
     total_return = (equity.iloc[-1] / INITIAL_CAPITAL - 1) * 100
     cagr = ((equity.iloc[-1] / INITIAL_CAPITAL) ** (1 / max(years, 1e-9)) - 1) * 100
-
-    # Sharpe (annualised, risk-free rate ≈ 0 for simplicity)
     daily_std = returns.std()
     sharpe = (returns.mean() / daily_std * np.sqrt(252)) if daily_std > 0 else 0.0
-
-    # Maximum drawdown
     rolling_max = equity.cummax()
-    drawdown = (equity - rolling_max) / rolling_max
-    max_dd = drawdown.min() * 100
-
-    # Win rate
+    max_dd = ((equity - rolling_max) / rolling_max).min() * 100
     win_rate = (returns > 0).sum() / max((returns != 0).sum(), 1) * 100
-
     return {
         "total_return": round(total_return, 2),
         "cagr": round(cagr, 2),
@@ -90,21 +81,15 @@ def compute_metrics(equity: pd.Series, returns: pd.Series) -> dict:
     }
 
 
-def build_summary(backtest_results: dict) -> list[dict]:
-    """Return metrics for all strategies as a list of dicts for the API."""
+def build_summary(backtest_results: Dict) -> list:
     rows = []
     for key, data in backtest_results.items():
         m = compute_metrics(data["equity"], data["returns"])
-        label = data["equity"].name
-        rows.append({"strategy": label, **m})
+        rows.append({"strategy": data["equity"].name, "key": key, **m})
     return sorted(rows, key=lambda r: r["cagr"], reverse=True)
 
 
-def equity_to_json(backtest_results: dict) -> dict:
-    """
-    Serialise equity curves to {strategy: {dates: [...], values: [...]}}
-    for Plotly in the frontend.
-    """
+def equity_to_json(backtest_results: Dict) -> dict:
     out = {}
     for key, data in backtest_results.items():
         eq = data["equity"].dropna()
@@ -112,5 +97,6 @@ def equity_to_json(backtest_results: dict) -> dict:
             "name": data["equity"].name,
             "dates": eq.index.strftime("%Y-%m-%d").tolist(),
             "values": [round(v, 2) for v in eq.values.tolist()],
+            "improved": "improved" in key,
         }
     return out

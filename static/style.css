@@ -126,7 +126,7 @@ main {
 .section-desc { color: var(--muted); font-size: 13px; margin-bottom: 14px; line-height: 1.6; }
 
 /* ── Chart ── */
-.chart-container { width: 100%; height: 420px; }
+.chart-container { width: 100%; height: 520px; }
 
 /* ── Tables ── */
 .table-scroll { overflow-x: auto; }
@@ -172,7 +172,11 @@ tbody td {
 
 /* strategy table */
 .strategy-name { font-weight: 600; }
-.best-row td { background: rgba(63,185,80,0.07); }
+.best-row td     { background: rgba(63,185,80,0.08); }
+.improved-row td { background: rgba(88,166,255,0.04); }
+.tag-best     { font-size: 11px; font-weight: 600; color: var(--green);  margin-left: 6px; }
+.tag-improved { font-size: 11px; font-weight: 600; color: var(--accent); margin-left: 6px; }
+.tag-bm       { font-size: 11px; font-weight: 600; color: var(--muted);  margin-left: 6px; }
 
 /* ── Error ── */
 .error-box {

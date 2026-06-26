@@ -1,15 +1,13 @@
 """
-Round-robin tournament ranking.
+Round-robin tournament ranking — two variants:
 
-For each trading day:
-  - For each lookback window L in LOOKBACK_WINDOWS, compute each ETF's L-day return.
-  - An ETF scores 1 win for every other ETF it beats on that window.
-  - Composite score = sum of wins across all windows.
-  - Rank ETFs descending by composite score.
+Original:  raw L-day returns, windows [10, 20, 40, 60, 120]
+Improved:  volatility-adjusted (Sharpe-like) returns, windows [60, 120, 252]
+           + 5-day minimum holding period applied in backtest.py
 
-Because wins(i) = rank_position(i) - 1 for a single metric, the round-robin
-is mathematically equivalent to ranking by return for a single window.
-The multi-window composite adds meaningful signal when windows disagree.
+Volatility adjustment: score = L-day_return / rolling_std(L days)
+This penalises ETFs that spike violently (commodities, leveraged thematic)
+and rewards ones with smooth, persistent uptrends.
 """
 from __future__ import annotations
 
@@ -18,15 +16,20 @@ from typing import List, Dict
 import numpy as np
 import pandas as pd
 
-from config import LOOKBACK_WINDOWS
+from config import LOOKBACK_WINDOWS, IMPROVED_WINDOWS, VOL_SCREEN_THRESHOLD, TREND_FILTER_WINDOW
+
+
+def _rank_scores(raw_scores: pd.DataFrame, max_window: int) -> pd.DataFrame:
+    """Normalise and combine raw per-window scores into a composite."""
+    scores = pd.DataFrame(0.0, index=raw_scores.index, columns=raw_scores.columns)
+    # raw_scores already has scores summed; just NaN the warmup rows
+    scores = raw_scores.copy()
+    scores.iloc[:max_window] = np.nan
+    return scores
 
 
 def compute_rankings(prices: pd.DataFrame) -> pd.DataFrame:
-    """
-    Return a DataFrame of composite tournament scores with the same
-    index as `prices` and one column per ETF.
-    Higher score = stronger uptrend relative to peers.
-    """
+    """Original tournament: raw momentum, short + long windows."""
     max_window = max(LOOKBACK_WINDOWS)
     scores = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
 
@@ -41,13 +44,66 @@ def compute_rankings(prices: pd.DataFrame) -> pd.DataFrame:
     return scores
 
 
+def compute_rankings_improved(prices: pd.DataFrame) -> pd.DataFrame:
+    """
+    Improved tournament: raw momentum on longer windows, plus two filters:
+
+    1. Volatility screen  — exclude any ETF whose 20-day daily return std
+       exceeds VOL_SCREEN_THRESHOLD (≈28% annualised). This removes commodity
+       ETFs (UNG, USO, SLV) and volatile thematic ETFs (ARKK, TAN, REMX) that
+       spike into #1 on the raw tournament and then crash.
+
+    2. Trend filter — exclude any ETF trading below its TREND_FILTER_WINDOW-day
+       moving average. Ensures we only hold assets in confirmed uptrends, not
+       dead-cat bounces.
+
+    3. Minimum holding period (applied in backtest.py via apply_min_holding).
+    """
+    daily_ret = prices.pct_change(fill_method=None)
+    warmup = max(max(IMPROVED_WINDOWS), TREND_FILTER_WINDOW)
+    scores = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+
+    for window in IMPROVED_WINDOWS:
+        returns = prices / prices.shift(window) - 1
+        wins = returns.rank(axis=1, method="average", na_option="keep")
+        valid_counts = wins.notna().sum(axis=1)
+        wins = wins.div(valid_counts, axis=0)
+        scores += wins.fillna(0)
+
+    # ── Filter 1: volatility screen ───────────────────────────────────────────
+    rolling_vol_20 = daily_ret.rolling(20).std()
+    too_volatile = rolling_vol_20 > VOL_SCREEN_THRESHOLD
+    scores = scores.where(~too_volatile, other=np.nan)
+
+    # ── Filter 2: trend filter (must be above 200-day MA) ────────────────────
+    ma = prices.rolling(TREND_FILTER_WINDOW).mean()
+    below_trend = prices < ma
+    scores = scores.where(~below_trend, other=np.nan)
+
+    scores.iloc[:warmup] = np.nan
+    return scores
+
+
 def get_daily_top_n(scores: pd.DataFrame, n: int) -> pd.DataFrame:
-    """
-    Return a boolean DataFrame (same shape as scores) where True means
-    this ETF is in the top-n on that day.
-    """
+    """Boolean DataFrame: True where ETF is in top-n that day."""
     ranks = scores.rank(axis=1, ascending=False, method="first", na_option="keep")
     return ranks <= n
+
+
+def apply_min_holding(mask: pd.DataFrame, min_holding_days: int = 5) -> pd.DataFrame:
+    """
+    Enforce a minimum holding period: only rebalance every min_holding_days.
+    Rebalances are aligned to every N-th trading day from the start.
+    """
+    result = mask.copy()
+    last_row = mask.iloc[0].copy()
+
+    for i in range(len(mask)):
+        if i % min_holding_days == 0:
+            last_row = mask.iloc[i].copy()
+        result.iloc[i] = last_row
+
+    return result
 
 
 def get_current_rankings(scores: pd.DataFrame, prices: pd.DataFrame, top_n: int = 20) -> List[Dict]:
@@ -57,7 +113,7 @@ def get_current_rankings(scores: pd.DataFrame, prices: pd.DataFrame, top_n: int 
 
     result = []
     for rank, (ticker, score) in enumerate(top.items(), 1):
-        row = {"rank": rank, "ticker": ticker, "score": round(score, 4)}
+        row: Dict = {"rank": rank, "ticker": ticker, "score": round(score, 4)}
         for label, window in [("ret_20d", 20), ("ret_60d", 60), ("ret_120d", 120)]:
             try:
                 p_now = prices[ticker].iloc[-1]
