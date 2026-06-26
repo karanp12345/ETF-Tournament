@@ -169,6 +169,18 @@ SIZE = [
     "VTV", "VUG", "IVE", "IVW", # value / growth
 ]
 
+# Single-inverse ETFs (-1x only — no leverage decay).
+# These pass the vol screen during bear markets and act as natural hedges.
+# Leveraged inverse (-2x, -3x) are intentionally excluded: daily rebalancing
+# causes volatility decay that destroys long-term value.
+INVERSE = [
+    "SH",   # ProShares Short S&P 500      (-1x SPY)
+    "PSQ",  # ProShares Short QQQ          (-1x QQQ)
+    "DOG",  # ProShares Short Dow 30       (-1x DJIA)
+    "RWM",  # ProShares Short Russell 2000 (-1x IWM)
+    "TBF",  # ProShares Short 20+ Year Treasury (-1x TLT)
+]
+
 
 def get_all_etfs() -> List[str]:
     """Return deduplicated list of all ETF tickers across all exchanges."""
@@ -180,7 +192,7 @@ def get_all_etfs() -> List[str]:
     american = (
         BROAD_US + NASDAQ + INTL_DEVELOPED + EMERGING_MARKETS + GLOBAL +
         SECTOR_SPDR + SECTOR_VANGUARD + SECTOR_SPECIFIC + THEMATIC +
-        FIXED_INCOME + COMMODITIES + DIVIDEND + FACTOR + SIZE
+        FIXED_INCOME + COMMODITIES + DIVIDEND + FACTOR + SIZE + INVERSE
     )
     seen, result = set(), []
     for t in canadian + american:

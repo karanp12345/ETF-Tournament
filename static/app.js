@@ -106,7 +106,7 @@ function renderEquityChart(equity) {
     hovermode: "x unified",
     annotations: [{
       x: 0.5, y: 1.04, xref: "paper", yref: "paper",
-      text: "— Dashed = Original strategy   |   ── Solid = Improved (vol-adjusted, 60/120/252d, 5-day hold)   |   ··· = SPY benchmark",
+      text: "— Dashed = Original (daily rebalance)   |   ── Solid = Improved (vol-adj, 60/120d, 10-day hold, +inverse ETFs)   |   ··· = SPY",
       showarrow: false,
       font: { size: 11, color: "#8b949e" },
       xanchor: "center",

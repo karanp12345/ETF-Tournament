@@ -71,8 +71,12 @@ def compute_rankings_improved(prices: pd.DataFrame) -> pd.DataFrame:
         scores += wins.fillna(0)
 
     # ── Filter 1: volatility screen ───────────────────────────────────────────
+    # NaN vol (< 20 days of history) compares False against the threshold and
+    # passes through. That's acceptable: the 200-day MA trend filter below will
+    # block any ETF without enough history, and data_manager enforces
+    # MIN_HISTORY_DAYS before an ETF enters the universe at all.
     rolling_vol_20 = daily_ret.rolling(20).std()
-    too_volatile = rolling_vol_20 > VOL_SCREEN_THRESHOLD
+    too_volatile = rolling_vol_20.gt(VOL_SCREEN_THRESHOLD)
     scores = scores.where(~too_volatile, other=np.nan)
 
     # ── Filter 2: trend filter (must be above 200-day MA) ────────────────────
