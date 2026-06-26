@@ -192,7 +192,10 @@ def get_all_etfs() -> List[str]:
     american = (
         BROAD_US + NASDAQ + INTL_DEVELOPED + EMERGING_MARKETS + GLOBAL +
         SECTOR_SPDR + SECTOR_VANGUARD + SECTOR_SPECIFIC + THEMATIC +
-        FIXED_INCOME + COMMODITIES + DIVIDEND + FACTOR + SIZE + INVERSE
+        FIXED_INCOME + COMMODITIES + DIVIDEND + FACTOR + SIZE
+        # INVERSE excluded: single-inverse ETFs get selected at the PEAK of
+        # bear markets (highest momentum), then held through early recovery
+        # when they lose value fastest. Net effect: -2% CAGR drag on Top-5.
     )
     seen, result = set(), []
     for t in canadian + american:
